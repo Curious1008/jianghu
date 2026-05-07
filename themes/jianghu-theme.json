@@ -1,0 +1,16 @@
+{
+  "name": "jianghu",
+  "description": "Wuxia chrome theme — ink + parchment + cinnabar seal",
+  "version": "0.1.0-pre",
+  "_status": "PLACEHOLDER — full theme spec TBD per design doc Week 4",
+  "colors": {
+    "ink":       { "hex": "#1a1a1a", "ansi256": 0,   "role": "primary text (light bg)" },
+    "ink_light": { "hex": "#e8e0d0", "ansi256": 230, "role": "primary text (dark bg)" },
+    "parchment": { "hex": "#d8c89c", "ansi256": 180, "role": "scroll surface bg inside frames" },
+    "cinnabar":  { "hex": "#C03030", "ansi256": 196, "role": "心魔 + ceremonial seal ONLY (R14)" },
+    "bronze":    { "hex": "#B8945F", "ansi256": 179, "role": "default highlight, numbers, paths, file refs" },
+    "bamboo":    { "hex": "#5A8E5A", "ansi256": 71,  "role": "rewards, positive time, daoxin" },
+    "ash":       { "hex": "#888080", "ansi256": 244, "role": "muted, EN translations, annotations" }
+  },
+  "_color_rules_reference": "See R9-R16 in design doc for inline color emphasis rules. R14 is non-negotiable: cinnabar appears in exactly 3 places (心魔 header, 心魔 body keywords, final seal). Nowhere else."
+}

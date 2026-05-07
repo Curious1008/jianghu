@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# /jianghu post-install setup
+# - Detects terminal width capability (R17)
+# - Writes initial ~/.jianghu/ state
+# - Optional tweakcc consent for chrome theme (Week 4 work)
+
+set -euo pipefail
+
+JIANGHU_HOME="${HOME}/.jianghu"
+mkdir -p "${JIANGHU_HOME}/archive"
+
+# TODO Week 1 Step 6: real R17 width detection via wcswidth
+# For now, default to "rich" — will be auto-detected post-Week-1
+FRAME_STYLE="rich"
+
+# Write config.json (default values per design doc)
+cat > "${JIANGHU_HOME}/config.json" <<EOF
+{
+  "enabled_sources": ["claude_code"],
+  "chrome_theme": "off",
+  "frame_style": "${FRAME_STYLE}",
+  "effects": "on"
+}
+EOF
+
+# Write initial state.json
+# first_run_complete=false triggers the 6-phase ceremony on first /jianghu invocation
+cat > "${JIANGHU_HOME}/state.json" <<EOF
+{
+  "schema_version": 1,
+  "first_run_complete": false,
+  "first_run_at": null,
+  "first_run_breath": null,
+  "first_run_realm": null,
+  "journey_started_at": null,
+  "journey_started_breath": null,
+  "current_realm": "凡",
+  "realm_index": 0,
+  "realm_entered_at": null,
+  "realm_entered_breath": null,
+  "daoxin_name": null,
+  "daoxin_name_en": null,
+  "ritual_count": 0,
+  "last_ritual_at": null,
+  "in_seclusion": false,
+  "seclusion_started_at": null
+}
+EOF
+
+# Initialize empty log
+touch "${JIANGHU_HOME}/log.jsonl"
+
+echo "Setup complete."
+echo "  config: ${JIANGHU_HOME}/config.json"
+echo "  state:  ${JIANGHU_HOME}/state.json"
+echo "  frame:  ${FRAME_STYLE} (re-detect later via /jianghu chrome detect-width)"

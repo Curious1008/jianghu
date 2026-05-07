@@ -1,0 +1,9 @@
+# tests/ — Bats + Python eval suite
+# Bats:
+#   test_signal_source.bats (cold/warm/F6 cache recovery)
+#   test_state_manager.bats (atomic rename, F2 corrupt recovery)
+#   test_realm_progress.bats (5 thresholds + boundary cases)
+#   test_render_width.bats (R17 wcswidth verification, all mockups ≤48 cells)
+#   test_first_run_paths.bats (Path A/B/C/D fixture jsonls)
+# Python eval (心魔 quality):
+#   eval_xinmo.py — pattern routing, no-hedge, no-advice, no-question, fact-grounding, format
