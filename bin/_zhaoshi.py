@@ -49,21 +49,36 @@ TEMPLATES = {
 }
 
 
-def pick_dir(sig: dict, route: dict, pattern: str) -> str:
-    """Pick the dir to feature based on the pattern's evidence."""
+def _clean_dir(name: str) -> tuple[str, str]:
+    """Map the dir name to (zh_label, en_label).
+
+    The literal repo-root '.' renders as a stray dot beside the sentence
+    period (e.g. "选最高那行 — .." reads like ".." ellipsis). Translate to
+    'root' / '根目录' so the sentence reads cleanly.
+    """
+    if not name or name in (".", "./"):
+        return ("根目录", "root")
+    return (name, name)
+
+
+def pick_dir(sig: dict, route: dict, pattern: str) -> tuple[str, str]:
+    """Pick the dir to feature based on the pattern's evidence.
+
+    Returns (zh_label, en_label) so each language renders idiomatically.
+    """
     ev = route.get("evidence", {}) or {}
     if pattern == "P5":
-        return ev.get("surface_dir") or top_dir(sig) or "src"
+        return _clean_dir(ev.get("surface_dir") or top_dir(sig) or "src")
     if pattern == "P2":
-        return ev.get("dominant_dir") or top_dir(sig) or "src"
+        return _clean_dir(ev.get("dominant_dir") or top_dir(sig) or "src")
     if pattern == "P4":
         rows = ev.get("rows") or []
         if rows:
-            return rows[0].get("dir") or "src"
-        return top_dir(sig) or "src"
+            return _clean_dir(rows[0].get("dir") or "src")
+        return _clean_dir(top_dir(sig) or "src")
     if pattern == "P1":
-        return top_dir(sig) or "src"
-    return top_dir(sig) or "src"
+        return _clean_dir(top_dir(sig) or "src")
+    return _clean_dir(top_dir(sig) or "src")
 
 
 def top_dir(sig: dict) -> str:
@@ -76,11 +91,11 @@ def render(sig: dict, route: dict) -> dict:
     if pattern not in TEMPLATES:
         pattern = "silence"
     zh_tmpl, en_tmpl = TEMPLATES[pattern]
-    chosen = pick_dir(sig, route, pattern)
+    zh_dir, en_dir = pick_dir(sig, route, pattern)
     return {
         "pattern": pattern,
-        "zh": zh_tmpl.format(dir=chosen),
-        "en": en_tmpl.format(dir=chosen),
+        "zh": zh_tmpl.format(dir=zh_dir),
+        "en": en_tmpl.format(dir=en_dir),
     }
 
 
