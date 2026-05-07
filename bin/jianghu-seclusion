@@ -1,0 +1,307 @@
+#!/usr/bin/env bash
+# bin/jianghu-seclusion — 闭关 breakthrough ceremony.
+#
+# Eligibility: state.realm_index < 4 AND total breaths >= REALMS[idx+1].threshold.
+#
+# Sequence: 闭关 → 过此一关 → 渡劫三问 (Q&A) → 突破 → 赐字 → 解锁.
+#
+# Modes:
+#   (default)              interactive — prompts on stdin
+#   --answers PATH         non-interactive — reads 3 answers from file (one per line)
+#   --resume               continue an in-progress seclusion (auto if state has it)
+#   --restart              wipe in-progress state and start over
+#   --exit-no-breakthrough exit current seclusion without advancing realm
+#   --frame-style {rich,safe}
+#   --no-archive
+#
+# Env hooks:
+#   JIANGHU_HOME, JIANGHU_REPO, JIANGHU_LLM_MOCK, JIANGHU_NOW_ISO
+
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+home_dir="${JIANGHU_HOME:-$HOME/.jianghu}"
+repo="${JIANGHU_REPO:-$PWD}"
+
+answers_file=""
+mode_resume=false
+mode_restart=false
+mode_exit=false
+frame_style_override=""
+do_archive=true
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --answers) answers_file="$2"; shift 2;;
+        --resume) mode_resume=true; shift;;
+        --restart) mode_restart=true; shift;;
+        --exit-no-breakthrough) mode_exit=true; shift;;
+        --frame-style) frame_style_override="$2"; shift 2;;
+        --no-archive) do_archive=false; shift;;
+        -h|--help)
+            sed -n '2,/^set -euo/p' "$0" | sed -n '/^# /p' | sed 's/^# //'; exit 0;;
+        *) printf 'unknown flag: %s\n' "$1" >&2; exit 1;;
+    esac
+done
+
+now_iso="${JIANGHU_NOW_ISO:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+# 1. signals
+"$here/jianghu-signals" --repo "$repo" >"$work/signals.json"
+
+# 2. breath (total) — augment signals with breath_total field
+breath="$("$here/jianghu-breath" || echo 0)"
+[[ "$breath" =~ ^[0-9]+$ ]] || breath=0
+python3 -c "
+import json, sys
+sig = json.load(open(sys.argv[1]))
+sig['breath_total'] = int(sys.argv[2])
+json.dump(sig, open(sys.argv[1], 'w'), ensure_ascii=False)
+" "$work/signals.json" "$breath"
+
+# 3. ensure state initialized
+"$here/jianghu-state" init --breath "$breath" >/dev/null
+
+# 4. dump state to a file for python helpers
+"$here/jianghu-state" read >"$work/state.json"
+
+# 5. eligibility
+python3 "$here/_seclusion.py" eligibility \
+    --signals "$work/signals.json" \
+    --state "$work/state.json" >"$work/elig.json"
+
+eligible="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['eligible'])" "$work/elig.json")"
+target_idx="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['target_index'])" "$work/elig.json")"
+
+# F5 — handle in-progress seclusion BEFORE eligibility check (because user
+# can be mid-seclusion having crossed the threshold but later the threshold
+# becomes irrelevant — we still want to let them finish or exit cleanly).
+in_seclusion="$("$here/jianghu-state" get in_seclusion 2>/dev/null | tr -d '"' || echo false)"
+
+handle_24h_autoexit() {
+    local started="$1"
+    if [[ -z "$started" || "$started" == "null" ]]; then
+        return 1
+    fi
+    local hours
+    hours="$(python3 -c "
+from datetime import datetime
+import sys
+def parse(s): return datetime.fromisoformat(s.replace('Z','+00:00'))
+print(int((parse(sys.argv[2]) - parse(sys.argv[1])).total_seconds() // 3600))
+" "$started" "$now_iso" 2>/dev/null || echo 0)"
+    if (( hours > 24 )); then
+        return 0
+    fi
+    return 1
+}
+
+clear_seclusion_state() {
+    "$here/jianghu-state" set in_seclusion false
+    "$here/jianghu-state" set seclusion_started_at null
+    "$here/jianghu-state" set seclusion_target_realm null
+    "$here/jianghu-state" set seclusion_answers '[]'
+}
+
+if [[ "$mode_exit" == true ]]; then
+    if [[ "$in_seclusion" == "true" ]]; then
+        clear_seclusion_state
+        printf '出关. 未突破.\n'
+        printf 'Exited seclusion. No breakthrough.\n'
+        exit 0
+    fi
+    printf '未在闭关中.\n'
+    exit 0
+fi
+
+if [[ "$in_seclusion" == "true" && "$mode_restart" != true ]]; then
+    started="$("$here/jianghu-state" get seclusion_started_at 2>/dev/null | tr -d '"' || echo null)"
+    if handle_24h_autoexit "$started"; then
+        clear_seclusion_state
+        printf '已闭关 24h+. 自动出关. 未突破.\n'
+        printf 'Seclusion older than 24h. Auto-exited. No breakthrough.\n'
+        exit 0
+    fi
+    if [[ "$mode_resume" != true ]]; then
+        # If interactive, ask. If not, default to resume.
+        if [[ -t 0 && -z "$answers_file" ]]; then
+            printf '\n你已闭关. 中途归来.\n'
+            printf 'You entered seclusion earlier. Welcome back.\n\n'
+            printf '[1] 续闭关 / continue\n'
+            printf '[2] 重起卦 / restart\n'
+            printf '[3] 出关  / exit (no breakthrough)\n'
+            printf '> '
+            read -r choice
+            case "${choice:-1}" in
+                2) mode_restart=true;;
+                3) clear_seclusion_state; printf '出关. 未突破.\n'; exit 0;;
+                *) mode_resume=true;;
+            esac
+        else
+            mode_resume=true
+        fi
+    fi
+fi
+
+if [[ "$eligible" != "True" && "$mode_resume" != true ]]; then
+    reason="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['reason'])" "$work/elig.json")"
+    cur_idx="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['current_index'])" "$work/elig.json")"
+    if (( cur_idx >= 4 )); then
+        printf '修为已极. 元婴之上, 留待 v2.\n'
+        printf 'You are at the highest realm. Beyond Nascent Soul awaits v2.\n'
+    else
+        next_thr="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['next_threshold'])" "$work/elig.json")"
+        printf '修为未满. 还需 %d 息方可破关.\n' "$((next_thr - breath))"
+        printf 'Cultivation incomplete. %d more breaths to break through.\n' "$((next_thr - breath))"
+    fi
+    exit 0
+fi
+
+# Begin or resume.
+if [[ "$mode_restart" == true || "$in_seclusion" != "true" ]]; then
+    "$here/jianghu-state" set in_seclusion true
+    "$here/jianghu-state" set seclusion_started_at "\"$now_iso\""
+    "$here/jianghu-state" set seclusion_target_realm "$target_idx"
+    "$here/jianghu-state" set seclusion_answers '[]'
+fi
+
+# Refresh state snapshot for downstream.
+"$here/jianghu-state" read >"$work/state.json"
+
+# Existing answers
+existing_answers_json="$("$here/jianghu-state" get seclusion_answers 2>/dev/null || echo '[]')"
+existing_count="$(python3 -c "import json,sys;print(len(json.loads(sys.argv[1])))" "$existing_answers_json")"
+
+# Read remaining answers.
+questions_json="$("$here/jianghu-route" --signals "$work/signals.json" >/dev/null; \
+    python3 "$here/_seclusion.py" questions)"
+total_qs="$(python3 -c "import json,sys;print(len(json.loads(sys.argv[1])))" "$questions_json")"
+
+read_answer_interactive() {
+    local q_zh="$1" q_en="$2"
+    printf '\n%s\n' "$q_zh"
+    printf '%s\n' "$q_en"
+    printf '> '
+    local ans
+    IFS= read -r ans
+    printf '%s' "$ans"
+}
+
+# answers source: file or stdin
+file_answers=()
+if [[ -n "$answers_file" ]]; then
+    while IFS= read -r line; do
+        file_answers+=("$line")
+    done <"$answers_file"
+fi
+
+i="$existing_count"
+while (( i < total_qs )); do
+    q_zh="$(python3 -c "import json,sys;print(json.loads(sys.argv[1])[int(sys.argv[2])]['zh'])" "$questions_json" "$i")"
+    q_en="$(python3 -c "import json,sys;print(json.loads(sys.argv[1])[int(sys.argv[2])]['en'])" "$questions_json" "$i")"
+
+    if [[ -n "$answers_file" ]]; then
+        idx_into_file="$((i - existing_count))"
+        if (( idx_into_file >= ${#file_answers[@]} )); then
+            printf 'not enough answers in --answers file (need %d more)\n' "$((total_qs - i))" >&2
+            exit 1
+        fi
+        ans="${file_answers[$idx_into_file]}"
+    else
+        ans="$(read_answer_interactive "$q_zh" "$q_en")"
+    fi
+
+    # Append to state.seclusion_answers atomically.
+    cur="$("$here/jianghu-state" get seclusion_answers)"
+    new_list="$(python3 -c "
+import json, sys
+cur = json.loads(sys.argv[1])
+cur.append({'q_index': int(sys.argv[2]), 'text': sys.argv[3]})
+sys.stdout.write(json.dumps(cur, ensure_ascii=False))
+" "$cur" "$i" "$ans")"
+    "$here/jianghu-state" set seclusion_answers "$new_list"
+    i=$((i + 1))
+done
+
+# Refresh after all answers persisted.
+"$here/jianghu-state" read >"$work/state.json"
+final_answers="$("$here/jianghu-state" get seclusion_answers)"
+printf '%s' "$final_answers" >"$work/answers.json"
+
+# 赐字 — LLM with fallback.
+target_zh="$(python3 -c "
+import sys, json
+sys.path.insert(0, sys.argv[1])
+from _realm import REALMS
+print(REALMS[int(sys.argv[2])][1])
+" "$here" "$target_idx")"
+target_en="$(python3 -c "
+import sys, json
+sys.path.insert(0, sys.argv[1])
+from _realm import REALMS
+print(REALMS[int(sys.argv[2])][2])
+" "$here" "$target_idx")"
+
+python3 "$here/_seclusion.py" given-name-prompt \
+    --signals "$work/signals.json" \
+    --state "$work/state.json" \
+    --target-zh "$target_zh" \
+    --target-en "$target_en" >"$work/gn_prompt.json"
+
+"$here/jianghu-llm" <"$work/gn_prompt.json" >"$work/gn_llm.json" || true
+llm_ok="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['ok'])" "$work/gn_llm.json" 2>/dev/null || echo False)"
+gn=""
+if [[ "$llm_ok" == "True" ]]; then
+    llm_text="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['text'])" "$work/gn_llm.json")"
+    parsed="$(python3 "$here/_seclusion.py" parse-name --text "$llm_text" 2>/dev/null || echo '{}')"
+    if python3 -c "import json,sys;d=json.loads(sys.argv[1]);sys.exit(0 if d.get('zh') and d.get('en') else 1)" "$parsed"; then
+        gn="$parsed"
+    fi
+fi
+if [[ -z "$gn" ]]; then
+    gn="$(python3 "$here/_seclusion.py" fallback-name --signals "$work/signals.json")"
+fi
+printf '%s' "$gn" >"$work/given_name.json"
+
+# Frame style.
+if [[ -n "$frame_style_override" ]]; then
+    frame_style="$frame_style_override"
+else
+    "$here/jianghu-config" init >/dev/null
+    frame_style="$("$here/jianghu-config" get frame_style 2>/dev/null | tr -d '"' || echo rich)"
+fi
+
+# Compose + render.
+python3 "$here/_seclusion.py" payload \
+    --signals "$work/signals.json" \
+    --state "$work/state.json" \
+    --answers "$work/answers.json" \
+    --given-name "$work/given_name.json" \
+    --eligibility "$work/elig.json" \
+    --frame-style "$frame_style" >"$work/payload.json"
+
+python3 "$here/_frame.py" --input "$work/payload.json" | tee "$work/scroll.txt"
+
+# Persist breakthrough.
+gn_zh="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['zh'])" "$work/given_name.json")"
+gn_en="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['en'])" "$work/given_name.json")"
+
+"$here/jianghu-state" set realm_index "$target_idx"
+"$here/jianghu-state" set current_realm "\"$target_zh\""
+"$here/jianghu-state" set realm_entered_breath "$breath"
+"$here/jianghu-state" set realm_entered_at "\"$now_iso\""
+"$here/jianghu-state" set daoxin_name "\"$gn_zh\""
+"$here/jianghu-state" set daoxin_name_en "\"$gn_en\""
+clear_seclusion_state
+
+# Archive.
+if [[ "$do_archive" == true ]]; then
+    mkdir -p "$home_dir/archive"
+    today="$(date -u +%Y-%m-%d)"
+    {
+        printf '\n=== seclusion %s → %s @ %s ===\n' "$target_zh" "$target_en" "$now_iso"
+        cat "$work/scroll.txt"
+    } >>"$home_dir/archive/$today.txt"
+fi

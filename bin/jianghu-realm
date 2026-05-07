@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# bin/jianghu-realm — thin shell over _realm.py
+#
+# Usage:
+#   jianghu-realm for <breath>      → JSON realm info
+#   jianghu-realm thresholds        → JSON list of realms
+#   jianghu-realm next <breath>     → JSON of next realm or null
+
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$here/_realm.py" "$@"

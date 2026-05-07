@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# bin/jianghu-config — thin shell over _config.py
+#
+# Usage: jianghu-config {init|read|get FIELD|set FIELD JSON-VALUE}
+# Env:   JIANGHU_HOME (default ~/.jianghu)
+
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$here/_config.py" "$@"

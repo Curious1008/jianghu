@@ -1,0 +1,4 @@
+{"type":"user","timestamp":"2026-02-01T00:00:00Z","content":"q"}
+{"type":"assistant","timestamp":"2026-02-01T00:00:01Z","content":"a"}
+{"type":"assistant","timestamp":"2026-02-01T00:00:02Z","content":"b"}
+{"type":"system","timestamp":"2026-02-01T00:00:03Z","content":"x"}

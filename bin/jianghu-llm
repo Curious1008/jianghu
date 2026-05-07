@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# bin/jianghu-llm — Anthropic call with prompt caching + quality gates.
+#
+# Reads {"system","user"} from stdin (e.g. piped from jianghu-demon-prompt
+# wrapping its system+user into a single object). Writes {"text","ok",...}.
+#
+# Env: see _llm_call.py. JIANGHU_LLM_MOCK=<text>|@FAIL|@FILE:/path bypasses
+# network — used by tests.
+
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$here/_llm_call.py" "$@"

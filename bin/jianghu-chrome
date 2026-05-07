@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# bin/jianghu-chrome — toggle / preview the wuxia chrome theme.
+#
+# Usage:
+#   jianghu-chrome on        flag chrome on, run tweakcc if available
+#   jianghu-chrome off       flag chrome off, instruct revert
+#   jianghu-chrome status    show flag + tweakcc detection
+#   jianghu-chrome preview   print the palette table
+#
+# We never patch ~/.claude/settings.json (per design "no settings.json
+# surgery"). Whether colors actually apply is tweakcc's job — without it,
+# we surface the palette and let the user wire it up.
+#
+# Env hooks:
+#   JIANGHU_TWEAKCC_BIN   override tweakcc autodetection (set to __none__ to
+#                         force no-tweakcc path)
+#   JIANGHU_HOME          state/config dir (default ~/.jianghu)
+#   JIANGHU_REPO_ROOT     skill root (default = parent of bin/)
+
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="${JIANGHU_REPO_ROOT:-$(cd "$here/.." && pwd)}"
+theme_path="$repo_root/themes/jianghu-theme.json"
+
+detect_tweakcc() {
+    if [[ -n "${JIANGHU_TWEAKCC_BIN:-}" ]]; then
+        if [[ "$JIANGHU_TWEAKCC_BIN" == "__none__" ]]; then
+            return 1
+        fi
+        printf '%s' "$JIANGHU_TWEAKCC_BIN"
+        return 0
+    fi
+    if command -v tweakcc >/dev/null 2>&1; then
+        command -v tweakcc
+        return 0
+    fi
+    return 1
+}
+
+cmd_on() {
+    "$here/jianghu-config" init >/dev/null
+    "$here/jianghu-config" set chrome_theme '"on"' >/dev/null
+    if bin="$(detect_tweakcc)"; then
+        printf '易服三息.\n'
+        printf 'Theme palette: %s\n' "$theme_path"
+        printf 'tweakcc detected at: %s\n' "$bin"
+        printf 'Run `tweakcc` (interactive) or apply the palette via the tweakcc UI.\n'
+    else
+        printf '易服三息.\n'
+        printf 'Chrome flag: on.\n'
+        printf 'Theme palette: %s\n' "$theme_path"
+        printf '\ntweakcc not found in PATH.\n'
+        printf 'Install: npm i -g tweakcc  (https://github.com/Piebald-AI/tweakcc)\n'
+        printf 'Then run: tweakcc  (and load the palette above).\n'
+    fi
+}
+
+cmd_off() {
+    "$here/jianghu-config" init >/dev/null
+    "$here/jianghu-config" set chrome_theme '"off"' >/dev/null
+    printf '归常服.\n'
+    printf 'Chrome flag: off.\n'
+    if bin="$(detect_tweakcc)"; then
+        printf 'If you applied the theme via tweakcc, revert via `tweakcc` (interactive).\n'
+    fi
+}
+
+cmd_status() {
+    "$here/jianghu-config" init >/dev/null
+    local flag
+    flag="$("$here/jianghu-config" get chrome_theme 2>/dev/null | tr -d '"' || echo off)"
+    printf 'chrome_theme: %s\n' "$flag"
+    if bin="$(detect_tweakcc)"; then
+        printf 'tweakcc:      %s\n' "$bin"
+    else
+        printf 'tweakcc:      not found\n'
+    fi
+    printf 'theme file:   %s\n' "$theme_path"
+}
+
+cmd_preview() {
+    if [[ ! -f "$theme_path" ]]; then
+        printf 'theme file missing: %s\n' "$theme_path" >&2
+        exit 1
+    fi
+    python3 - "$theme_path" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    theme = json.load(f)
+palette = theme.get("palette", {})
+print()
+print(f"  jianghu palette  ─  {theme.get('displayName', theme.get('name'))}")
+print()
+def swatch(c):
+    return f"\033[38;5;{c}m█████\033[0m"
+for key, info in palette.items():
+    name = info.get("name", key)
+    hex_v = info.get("hex", "")
+    ansi = info.get("ansi256", 0)
+    use = info.get("use", "")
+    print(f"  {swatch(ansi)}  {key:<14} {hex_v:<8} {name}")
+    if use:
+        print(f"          {use}")
+print()
+PY
+}
+
+case "${1:-status}" in
+    on) cmd_on;;
+    off) cmd_off;;
+    status) cmd_status;;
+    preview) cmd_preview;;
+    -h|--help) sed -n '2,/^set -euo/p' "$0" | sed -n '/^# /p' | sed 's/^# //'; exit 0;;
+    *) printf 'unknown subcommand: %s\n' "$1" >&2; exit 1;;
+esac

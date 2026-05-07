@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# bin/jianghu-frame — render a daily-ritual scroll from JSON payload.
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$here/_frame.py" "$@"

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# bin/jianghu-zhaoshi — render 招式 deterministically from signals + route.
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$here/_zhaoshi.py" "$@"

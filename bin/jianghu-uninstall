@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# bin/jianghu-uninstall — F7 spec.
+#
+# Steps:
+#   1. flag chrome off (jianghu-chrome off)
+#   2. ask whether to back up ~/.jianghu/ to ~/.jianghu.archive-{ts}/
+#      (or skip in --no-archive mode)
+#   3. delete ~/.jianghu/
+#
+# Modes:
+#   --yes / -y          non-interactive — proceed without prompting
+#   --no-archive        skip the archive step
+#   --archive           archive without prompting
+#   --keep-state        skip step 3 (debug aid)
+#
+# Env: JIANGHU_HOME (default ~/.jianghu)
+
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+home_dir="${JIANGHU_HOME:-$HOME/.jianghu}"
+
+mode_yes=false
+archive_choice=""
+keep_state=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -y|--yes) mode_yes=true; shift;;
+        --archive) archive_choice="yes"; shift;;
+        --no-archive) archive_choice="no"; shift;;
+        --keep-state) keep_state=true; shift;;
+        -h|--help)
+            sed -n '2,/^set -euo/p' "$0" | sed -n '/^# /p' | sed 's/^# //'; exit 0;;
+        *) printf 'unknown flag: %s\n' "$1" >&2; exit 1;;
+    esac
+done
+
+if [[ "$mode_yes" != true && -t 0 ]]; then
+    printf '\n你已修行至此. 真要离山?\n'
+    printf 'You walked far. Truly leave the mountain?\n'
+    printf '\n  [y] confirm uninstall\n  [n] cancel\n> '
+    read -r ans
+    case "${ans:-n}" in
+        y|Y|yes|YES) :;;
+        *) printf 'cancelled.\n'; exit 0;;
+    esac
+fi
+
+# Step 1 — chrome off (best effort).
+if [[ -x "$here/jianghu-chrome" ]]; then
+    "$here/jianghu-chrome" off >/dev/null 2>&1 || true
+fi
+
+# Step 2 — optional archive.
+if [[ -d "$home_dir" ]]; then
+    do_archive=false
+    case "$archive_choice" in
+        yes) do_archive=true;;
+        no)  do_archive=false;;
+        "")
+            if [[ "$mode_yes" == true ]]; then
+                # default in non-interactive: archive (safe).
+                do_archive=true
+            elif [[ -t 0 ]]; then
+                printf '\n保存历卷? 备份至 ~/.jianghu.archive-{时}/.\n'
+                printf 'Archive your scrolls to ~/.jianghu.archive-{ts}/?\n'
+                printf '\n  [y] yes (recommended)\n  [n] discard everything\n> '
+                read -r ans
+                case "${ans:-y}" in
+                    n|N|no|NO) do_archive=false;;
+                    *) do_archive=true;;
+                esac
+            else
+                do_archive=true
+            fi
+            ;;
+    esac
+
+    if [[ "$do_archive" == true ]]; then
+        ts="$(date -u +%Y%m%dT%H%M%SZ)"
+        target="$HOME/.jianghu.archive-$ts"
+        if [[ -n "${JIANGHU_HOME_ARCHIVE_TARGET:-}" ]]; then
+            target="$JIANGHU_HOME_ARCHIVE_TARGET"
+        fi
+        cp -R "$home_dir" "$target"
+        printf '历卷已存: %s\n' "$target"
+        printf 'Archived to: %s\n' "$target"
+    fi
+fi
+
+# Step 3 — delete state dir.
+if [[ "$keep_state" != true && -d "$home_dir" ]]; then
+    rm -rf "$home_dir"
+    printf '状态已清.\n'
+    printf 'State cleared.\n'
+fi
+
+printf '\n山门掩.\n'
+printf 'The gate closes.\n'

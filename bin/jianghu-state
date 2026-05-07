@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# bin/jianghu-state — thin shell over _state.py
+#
+# Usage:
+#   jianghu-state init [--breath N]
+#   jianghu-state read
+#   jianghu-state get <field>
+#   jianghu-state set <field> <json-value>
+#
+# Env: JIANGHU_HOME (default ~/.jianghu)
+
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$here/_state.py" "$@"

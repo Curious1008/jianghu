@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# bin/jianghu-archive — list + replay past daily/seclusion rituals.
+#
+# Usage:
+#   jianghu-archive                list available dates
+#   jianghu-archive list           same as default
+#   jianghu-archive replay <date>  print archived scroll(s) for that date
+#   jianghu-archive replay last    most recent date
+#   jianghu-archive count          number of archived days
+#
+# Date format: YYYY-MM-DD.
+#
+# Env: JIANGHU_HOME (default ~/.jianghu)
+
+set -euo pipefail
+home_dir="${JIANGHU_HOME:-$HOME/.jianghu}"
+archive_dir="$home_dir/archive"
+
+list_dates() {
+    if [[ ! -d "$archive_dir" ]]; then
+        return
+    fi
+    local f
+    for f in "$archive_dir"/*.txt; do
+        [[ -e "$f" ]] || continue
+        basename "$f" .txt
+    done | sort
+}
+
+cmd_list() {
+    local dates
+    dates="$(list_dates)"
+    if [[ -z "$dates" ]]; then
+        printf '尚无 archive. 修行未起.\n'
+        printf 'No archive yet. Cultivation has not begun.\n'
+        return 0
+    fi
+    local total
+    total="$(printf '%s\n' "$dates" | wc -l | tr -d ' ')"
+    printf '已存 %d 日修行:\n' "$total"
+    printf '%d days of cultivation on file:\n\n' "$total"
+    printf '%s\n' "$dates" | while read -r d; do
+        local count
+        count="$(grep -c '^=== ' "$archive_dir/$d.txt" 2>/dev/null || echo 0)"
+        printf '  %s  ─  %d 卷\n' "$d" "$count"
+    done
+}
+
+cmd_count() {
+    list_dates | wc -l | tr -d ' '
+}
+
+cmd_replay() {
+    local target="${1:-last}"
+    if [[ "$target" == "last" ]]; then
+        target="$(list_dates | tail -1)"
+    fi
+    if [[ -z "$target" ]]; then
+        printf '尚无 archive 可观.\n' >&2
+        printf 'No archive to replay.\n' >&2
+        return 1
+    fi
+    local f="$archive_dir/$target.txt"
+    if [[ ! -f "$f" ]]; then
+        printf '此日无卷: %s\n' "$target" >&2
+        printf 'No archive for: %s\n' "$target" >&2
+        return 1
+    fi
+    cat "$f"
+}
+
+case "${1:-list}" in
+    list) cmd_list;;
+    count) cmd_count;;
+    replay) shift; cmd_replay "${1:-last}";;
+    -h|--help) sed -n '2,/^set -euo/p' "$0" | sed -n '/^# /p' | sed 's/^# //'; exit 0;;
+    *) printf 'unknown subcommand: %s\n' "$1" >&2; exit 1;;
+esac

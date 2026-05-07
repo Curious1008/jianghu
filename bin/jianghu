@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+# bin/jianghu — daily ritual orchestrator (default subcommand).
+#
+# Pipeline:
+#   1. signals (jianghu-signals)
+#   2. route   (jianghu-route)
+#   3. breath  (jianghu-breath)
+#   4. realm   (jianghu-realm for $breath)
+#   5. observed section (jianghu-observed)
+#   6. zhaoshi (deterministic)
+#   7. daoxin  (deterministic)
+#   8. demon   (LLM if pattern != silence; silence_text otherwise)
+#   9. compose payload + render frame
+#  10. archive + state update
+#
+# Mode triggers:
+#   --guishan-force       force return-to-mountain layout (test hook)
+#   --no-archive          skip archive write (test hook)
+#   --frame-style {rich,safe}  override config
+#
+# Env hooks (mostly for tests):
+#   JIANGHU_HOME          override ~/.jianghu
+#   JIANGHU_REPO          override CWD as the target repo
+#   JIANGHU_LLM_MOCK      see _llm_call.py
+#   JIANGHU_NOW_ISO       freeze "now" for guishan computation
+
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+home_dir="${JIANGHU_HOME:-$HOME/.jianghu}"
+repo="${JIANGHU_REPO:-$PWD}"
+
+frame_style_override=""
+guishan_force=false
+do_archive=true
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --guishan-force) guishan_force=true; shift;;
+        --no-archive)    do_archive=false; shift;;
+        --frame-style)   frame_style_override="$2"; shift 2;;
+        -h|--help)
+            cat <<'HELP'
+jianghu — daily ritual
+
+Usage:
+  jianghu [--frame-style rich|safe] [--no-archive] [--guishan-force]
+
+Reads the current repo (or $JIANGHU_REPO), prints the daily scroll, and
+appends to ~/.jianghu/archive/YYYY-MM-DD.txt unless --no-archive is set.
+HELP
+            exit 0;;
+        *) printf 'unknown flag: %s\n' "$1" >&2; exit 1;;
+    esac
+done
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+# 1. signals
+"$here/jianghu-signals" --repo "$repo" >"$work/signals.json"
+
+# 2. route
+"$here/jianghu-route" --signals "$work/signals.json" >"$work/route.json"
+
+# 3. breath
+breath="$("$here/jianghu-breath" || echo 0)"
+[[ "$breath" =~ ^[0-9]+$ ]] || breath=0
+
+# 4. realm
+"$here/jianghu-realm" for "$breath" >"$work/realm.json"
+
+# 5. observed
+"$here/jianghu-observed" --signals "$work/signals.json" >"$work/observed.json"
+
+# 6. zhaoshi
+"$here/jianghu-zhaoshi" --signals "$work/signals.json" --route "$work/route.json" >"$work/zhaoshi.json"
+
+# 7. daoxin
+"$here/jianghu-daoxin" --signals "$work/signals.json" >"$work/daoxin.json"
+
+# Initialize state (idempotent — anchors journey/realm to current breath only
+# the first time state.json is written).
+"$here/jianghu-state" init --breath "$breath" >/dev/null
+
+# Detect first-run mode (state.first_run_complete == false).
+first_run_complete="$("$here/jianghu-state" get first_run_complete 2>/dev/null | tr -d '"' || echo false)"
+first_run_flag=""
+if [[ "$first_run_complete" != "true" ]]; then
+    first_run_flag="--first-run"
+fi
+
+# 8. demon — only if pattern != silence
+pattern="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['pattern'])" "$work/route.json")"
+
+demon_silence_flag=""
+demon_text_flag=()
+if [[ "$pattern" == "silence" ]]; then
+    demon_silence_flag="--demon-silence"
+else
+    "$here/jianghu-demon-prompt" \
+        --signals "$work/signals.json" \
+        --route "$work/route.json" >"$work/demon_prompt.json"
+    # Build {system,user} object and pipe to llm.
+    python3 -c "
+import json,sys
+p = json.load(open(sys.argv[1]))
+sys.stdout.write(json.dumps({'system': p['system'], 'user': p['user']}))
+" "$work/demon_prompt.json" >"$work/llm_input.json"
+    "$here/jianghu-llm" <"$work/llm_input.json" >"$work/llm_out.json"
+    ok="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['ok'])" "$work/llm_out.json")"
+    if [[ "$ok" == "True" ]]; then
+        python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['text'])" "$work/llm_out.json" >"$work/demon.txt"
+        demon_text_flag=(--demon-text "$work/demon.txt")
+    else
+        # LLM failed → fall back to silence. The mountain shrugs.
+        demon_silence_flag="--demon-silence"
+    fi
+fi
+
+# Banners — fire when breath has crossed the next-realm threshold while
+# state.realm_index lags (realm_index only advances via /jianghu seclusion).
+banner_args=()
+state_idx="$("$here/jianghu-state" get realm_index 2>/dev/null || echo 0)"
+[[ "$state_idx" =~ ^[0-9]+$ ]] || state_idx=0
+in_seclusion="$("$here/jianghu-state" get in_seclusion 2>/dev/null | tr -d '"' || echo "false")"
+next_thr="$("$here/jianghu-realm" thresholds | python3 -c "
+import json, sys
+t = json.load(sys.stdin)
+i = int(sys.argv[1]) + 1
+sys.stdout.write(str(t[i]['threshold']) if i < len(t) else '-1')
+" "$state_idx")"
+if [[ "$next_thr" != "-1" ]] && (( breath >= next_thr )) && [[ "$in_seclusion" != "true" ]]; then
+    banner_args+=(--banner "突破可期 / breakthrough is near")
+fi
+
+# 归山 mode: last_ritual_at older than 72h. First-run takes priority — a new
+# user can't simultaneously be returning to the mountain.
+guishan_flag=""
+if [[ -z "$first_run_flag" ]]; then
+    if [[ "$guishan_force" == true ]]; then
+        guishan_flag="--guishan"
+    else
+        last_ritual="$("$here/jianghu-state" get last_ritual_at 2>/dev/null | tr -d '"' || echo "null")"
+        now_iso="${JIANGHU_NOW_ISO:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+        if [[ "$last_ritual" != "null" && -n "$last_ritual" ]]; then
+            gap_hours="$(python3 -c "
+from datetime import datetime, timezone
+import sys
+def parse(s):
+    s=s.replace('Z','+00:00')
+    return datetime.fromisoformat(s)
+last=parse(sys.argv[1]); now=parse(sys.argv[2])
+print(int((now-last).total_seconds()//3600))
+" "$last_ritual" "$now_iso" 2>/dev/null || echo 0)"
+            if (( gap_hours > 72 )); then
+                guishan_flag="--guishan"
+            fi
+        fi
+    fi
+fi
+
+# Frame style — config or override.
+if [[ -n "$frame_style_override" ]]; then
+    frame_style="$frame_style_override"
+else
+    "$here/jianghu-config" init >/dev/null
+    frame_style="$("$here/jianghu-config" get frame_style 2>/dev/null | tr -d '"' || echo rich)"
+fi
+
+# Day-7+ keeper note: appears 7d after first-run, then every 30d.
+harry_note_flag=""
+if [[ -z "$first_run_flag" ]]; then
+    fr_at="$("$here/jianghu-state" get first_run_at 2>/dev/null | tr -d '"' || echo null)"
+    last_h="$("$here/jianghu-state" get last_harry_prompt_at 2>/dev/null | tr -d '"' || echo null)"
+    now_for_note="${JIANGHU_NOW_ISO:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+    show_note="$(python3 -c "
+from datetime import datetime
+import sys
+def parse(s):
+    if not s or s == 'null': return None
+    return datetime.fromisoformat(s.replace('Z','+00:00'))
+fr = parse(sys.argv[1]); last = parse(sys.argv[2]); now = parse(sys.argv[3])
+if not fr or not now:
+    print('no'); sys.exit(0)
+days_since_fr = (now - fr).total_seconds() / 86400
+if days_since_fr < 7:
+    print('no'); sys.exit(0)
+if last is None:
+    print('yes'); sys.exit(0)
+days_since_last = (now - last).total_seconds() / 86400
+print('yes' if days_since_last >= 30 else 'no')
+" "$fr_at" "$last_h" "$now_for_note" 2>/dev/null || echo no)"
+    if [[ "$show_note" == "yes" ]]; then
+        harry_note_flag="--harry-note"
+    fi
+fi
+
+# Compose + render.
+compose_args=(
+    --signals "$work/signals.json"
+    --route   "$work/route.json"
+    --observed "$work/observed.json"
+    --zhaoshi "$work/zhaoshi.json"
+    --daoxin  "$work/daoxin.json"
+    --realm   "$work/realm.json"
+    --breath  "$breath"
+    --frame-style "$frame_style"
+)
+[[ -n "$demon_silence_flag" ]] && compose_args+=("$demon_silence_flag")
+[[ ${#demon_text_flag[@]} -gt 0 ]] && compose_args+=("${demon_text_flag[@]}")
+[[ ${#banner_args[@]} -gt 0 ]] && compose_args+=("${banner_args[@]}")
+[[ -n "$guishan_flag" ]] && compose_args+=("$guishan_flag")
+[[ -n "$first_run_flag" ]] && compose_args+=("$first_run_flag")
+[[ -n "$harry_note_flag" ]] && compose_args+=("$harry_note_flag")
+
+python3 "$here/_compose.py" "${compose_args[@]}" >"$work/payload.json"
+python3 "$here/_frame.py" --input "$work/payload.json" | tee "$work/scroll.txt"
+
+# Archive + state update.
+if [[ "$do_archive" == true ]]; then
+    mkdir -p "$home_dir/archive"
+    today="$(date -u +%Y-%m-%d)"
+    archive_path="$home_dir/archive/$today.txt"
+    {
+        printf '\n=== %s ===\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        cat "$work/scroll.txt"
+    } >>"$archive_path"
+fi
+
+# Bump ritual_count + last_ritual_at.
+current_count="$("$here/jianghu-state" get ritual_count 2>/dev/null || echo 0)"
+[[ "$current_count" =~ ^[0-9]+$ ]] || current_count=0
+new_count=$((current_count + 1))
+"$here/jianghu-state" set ritual_count "$new_count"
+now_for_state="${JIANGHU_NOW_ISO:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+"$here/jianghu-state" set last_ritual_at "\"$now_for_state\""
+
+# If we showed the keeper note, stamp it so it doesn't reappear for 30d.
+if [[ -n "$harry_note_flag" ]]; then
+    "$here/jianghu-state" set last_harry_prompt_at "\"$now_for_state\""
+fi
+
+# First-run completion: place realm + persist first-run anchors.
+if [[ -n "$first_run_flag" ]]; then
+    placement="$(python3 -c "
+import sys
+b = int(sys.argv[1])
+if b < 100:    print('0\t凡\tMortal')
+elif b < 500:  print('1\t练气\tQi Refining')
+elif b < 2000: print('2\t筑基\tFoundation')
+elif b < 10000:print('3\t金丹\tGolden Core')
+else:          print('4\t元婴\tNascent Soul')
+" "$breath")"
+    fr_idx="$(printf '%s\n' "$placement" | cut -f1)"
+    fr_zh="$(printf '%s\n' "$placement" | cut -f2)"
+    fr_en="$(printf '%s\n' "$placement" | cut -f3)"
+    "$here/jianghu-state" set realm_index "$fr_idx"
+    "$here/jianghu-state" set current_realm "\"$fr_zh\""
+    "$here/jianghu-state" set realm_entered_breath "$breath"
+    "$here/jianghu-state" set realm_entered_at "\"$now_for_state\""
+    "$here/jianghu-state" set first_run_complete true
+    "$here/jianghu-state" set first_run_at "\"$now_for_state\""
+    "$here/jianghu-state" set first_run_breath "$breath"
+    "$here/jianghu-state" set first_run_realm "\"$fr_zh\""
+fi

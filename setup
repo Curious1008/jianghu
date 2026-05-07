@@ -1,56 +1,73 @@
 #!/usr/bin/env bash
-# /jianghu post-install setup
-# - Detects terminal width capability (R17)
-# - Writes initial ~/.jianghu/ state
-# - Optional tweakcc consent for chrome theme (Week 4 work)
+# setup — bootstrap the /jianghu skill after `git clone`.
+#
+# Steps:
+#   1. ensure bin/* is executable
+#   2. R17 width detection (writes config.json:frame_style)
+#   3. state init (anchors journey to current breath, no-op if already exists)
+#   4. optional tweakcc consent message
+#
+# Idempotent. Safe to re-run.
+#
+# Modes:
+#   --auto              non-interactive width detection (defaults rich)
+#   --no-state-init     skip step 3 (rare)
+#
+# Env: JIANGHU_HOME, JIANGHU_REPO_ROOT (default = this script's dir)
 
 set -euo pipefail
 
-JIANGHU_HOME="${HOME}/.jianghu"
-mkdir -p "${JIANGHU_HOME}/archive"
+here="$(cd "$(dirname "$0")" && pwd)"
+repo_root="${JIANGHU_REPO_ROOT:-$here}"
+bin_dir="$repo_root/bin"
 
-# TODO Week 1 Step 6: real R17 width detection via wcswidth
-# For now, default to "rich" — will be auto-detected post-Week-1
-FRAME_STYLE="rich"
+mode_auto=false
+do_state_init=true
 
-# Write config.json (default values per design doc)
-cat > "${JIANGHU_HOME}/config.json" <<EOF
-{
-  "enabled_sources": ["claude_code"],
-  "chrome_theme": "off",
-  "frame_style": "${FRAME_STYLE}",
-  "effects": "on"
-}
-EOF
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --auto) mode_auto=true; shift;;
+        --no-state-init) do_state_init=false; shift;;
+        -h|--help)
+            sed -n '2,/^set -euo/p' "$0" | sed -n '/^# /p' | sed 's/^# //'; exit 0;;
+        *) printf 'unknown flag: %s\n' "$1" >&2; exit 1;;
+    esac
+done
 
-# Write initial state.json
-# first_run_complete=false triggers the 6-phase ceremony on first /jianghu invocation
-cat > "${JIANGHU_HOME}/state.json" <<EOF
-{
-  "schema_version": 1,
-  "first_run_complete": false,
-  "first_run_at": null,
-  "first_run_breath": null,
-  "first_run_realm": null,
-  "journey_started_at": null,
-  "journey_started_breath": null,
-  "current_realm": "凡",
-  "realm_index": 0,
-  "realm_entered_at": null,
-  "realm_entered_breath": null,
-  "daoxin_name": null,
-  "daoxin_name_en": null,
-  "ritual_count": 0,
-  "last_ritual_at": null,
-  "in_seclusion": false,
-  "seclusion_started_at": null
-}
-EOF
+printf '\n┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n'
+printf '   /jianghu  ─  setup\n'
+printf '┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n'
 
-# Initialize empty log
-touch "${JIANGHU_HOME}/log.jsonl"
+# Step 1 — chmod +x.
+chmod +x "$bin_dir"/* "$repo_root"/install.sh "$repo_root"/setup 2>/dev/null || true
 
-echo "Setup complete."
-echo "  config: ${JIANGHU_HOME}/config.json"
-echo "  state:  ${JIANGHU_HOME}/state.json"
-echo "  frame:  ${FRAME_STYLE} (re-detect later via /jianghu chrome detect-width)"
+# Step 2 — width detection.
+if [[ "$mode_auto" == true ]]; then
+    fs="$("$bin_dir/jianghu-detect-width.sh" --auto)"
+else
+    fs="$("$bin_dir/jianghu-detect-width.sh")"
+fi
+printf '  frame_style: %s\n' "$fs"
+
+# Step 3 — state init (anchors to current breath count).
+if [[ "$do_state_init" == true ]]; then
+    breath="$("$bin_dir/jianghu-breath" 2>/dev/null || echo 0)"
+    [[ "$breath" =~ ^[0-9]+$ ]] || breath=0
+    "$bin_dir/jianghu-state" init --breath "$breath" >/dev/null
+    printf '  state:       initialized at %s 息\n' "$breath"
+fi
+
+# Step 4 — tweakcc consent message.
+if command -v tweakcc >/dev/null 2>&1; then
+    tw="$(command -v tweakcc)"
+    printf '  tweakcc:     %s ✓\n' "$tw"
+    printf '  Apply theme: tweakcc  (interactive UI)\n'
+    printf '  Theme file:  %s\n' "$repo_root/themes/jianghu-theme.json"
+else
+    printf '  tweakcc:     not found\n'
+    printf '  Optional:    npm i -g tweakcc  (full color theme)\n'
+    printf '  Without it:  /jianghu still works, just monochrome.\n'
+fi
+
+printf '\n山门已开. 请在 Claude Code 中输入 /jianghu.\n'
+printf 'The gate is open. Type /jianghu in Claude Code to begin.\n\n'

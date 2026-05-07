@@ -1,16 +1,60 @@
 {
+  "$schema": "https://raw.githubusercontent.com/Piebald-AI/tweakcc/main/theme.schema.json",
   "name": "jianghu",
-  "description": "Wuxia chrome theme — ink + parchment + cinnabar seal",
-  "version": "0.1.0-pre",
-  "_status": "PLACEHOLDER — full theme spec TBD per design doc Week 4",
-  "colors": {
-    "ink":       { "hex": "#1a1a1a", "ansi256": 0,   "role": "primary text (light bg)" },
-    "ink_light": { "hex": "#e8e0d0", "ansi256": 230, "role": "primary text (dark bg)" },
-    "parchment": { "hex": "#d8c89c", "ansi256": 180, "role": "scroll surface bg inside frames" },
-    "cinnabar":  { "hex": "#C03030", "ansi256": 196, "role": "心魔 + ceremonial seal ONLY (R14)" },
-    "bronze":    { "hex": "#B8945F", "ansi256": 179, "role": "default highlight, numbers, paths, file refs" },
-    "bamboo":    { "hex": "#5A8E5A", "ansi256": 71,  "role": "rewards, positive time, daoxin" },
-    "ash":       { "hex": "#888080", "ansi256": 244, "role": "muted, EN translations, annotations" }
+  "displayName": "Jianghu (江湖)",
+  "description": "Wuxia chrome theme for Claude Code. Ink + cinnabar + bronze + bamboo on bone-white scroll. Pairs with the /jianghu skill's daily cultivation ritual.",
+  "author": "harry",
+  "version": "1.0.0",
+  "inspiration": "ink-brush manuscripts, dim-lit mountain hermitage, scroll typography",
+  "palette": {
+    "ink":           { "hex": "#1A1A1A", "ansi256": 232, "name": "墨 / ink",          "use": "primary body text on light, default fg on dark" },
+    "ink_light":     { "hex": "#E8E0D0", "ansi256": 230, "name": "雪墨 / pale ink",   "use": "primary body text on dark theme" },
+    "cinnabar":      { "hex": "#C03030", "ansi256": 196, "name": "朱砂 / cinnabar",   "use": "accent — 心魔 header, 心魔 body keywords, ceremonial seal (R14: nowhere else)" },
+    "dark_cinnabar": { "hex": "#8B2020", "ansi256": 88,  "name": "暗朱 / dark cinnabar","use": "招式破 / hard errors" },
+    "bronze":        { "hex": "#B8945F", "ansi256": 179, "name": "古铜 / bronze",     "use": "borders, decorations, factual numerals, file paths" },
+    "bamboo":        { "hex": "#5A8E5A", "ansi256": 71,  "name": "竹青 / bamboo",     "use": "success, breakthrough, forward time, 道心 closing" },
+    "ash":           { "hex": "#888080", "ansi256": 244, "name": "灰墨 / ash",        "use": "muted annotations, EN subtitles, dim trigrams" },
+    "scroll":        { "hex": "#F4ECD8", "ansi256": 230, "name": "卷白 / scroll",     "use": "background tint on light theme" },
+    "stone":         { "hex": "#1F1B16", "ansi256": 234, "name": "石青 / stone",      "use": "background tint on dark theme" }
   },
-  "_color_rules_reference": "See R9-R16 in design doc for inline color emphasis rules. R14 is non-negotiable: cinnabar appears in exactly 3 places (心魔 header, 心魔 body keywords, final seal). Nowhere else."
+  "syntax": {
+    "comments":  { "fg": "ash" },
+    "keywords":  { "fg": "cinnabar" },
+    "strings":   { "fg": "bamboo" },
+    "numbers":   { "fg": "bronze" },
+    "functions": { "fg": "ink" },
+    "types":     { "fg": "bronze" },
+    "operators": { "fg": "ink" },
+    "errors":    { "fg": "dark_cinnabar", "bold": true },
+    "warnings":  { "fg": "cinnabar" },
+    "info":      { "fg": "bronze" }
+  },
+  "ui": {
+    "primary":   { "fg": "ink" },
+    "secondary": { "fg": "ash" },
+    "accent":    { "fg": "cinnabar" },
+    "border":    { "fg": "bronze" },
+    "success":   { "fg": "bamboo" },
+    "info":      { "fg": "bronze" },
+    "warning":   { "fg": "cinnabar" },
+    "error":     { "fg": "dark_cinnabar", "bold": true },
+    "muted":     { "fg": "ash" }
+  },
+  "spinners": {
+    "_comment": "Wuxia-themed thinking glyphs. tweakcc spinner support varies by CC version.",
+    "default":   { "frames": ["·", "··", "···", "··", "·"],            "interval_ms": 200, "label": "凝神" },
+    "ritual":    { "frames": ["☰", "☱", "☲", "☳", "☴", "☵", "☶", "☷"], "interval_ms": 150, "label": "起卦" },
+    "seclusion": { "frames": ["⊙", "◉", "⊙", "◉"],                       "interval_ms": 250, "label": "运气" },
+    "browser":   { "frames": ["✦", "✧", "·", "✦"],                      "interval_ms": 180, "label": "出关" },
+    "chrome":    { "frames": ["卌", "丨", "卌", "丨"],                    "interval_ms": 200, "label": "易服" }
+  },
+  "thinking_verbs": [
+    "凝神", "运气", "起卦", "望气", "推演", "格物", "勘破", "听风", "察形", "明心", "见性", "归元"
+  ],
+  "notes": [
+    "Apply via: tweakcc apply themes/jianghu-theme.json (or follow the tweakcc UI).",
+    "Without tweakcc, this file is reference — map the palette manually in your terminal.",
+    "R14 is non-negotiable: cinnabar appears ONLY in 心魔 header + 心魔 body keywords + ceremonial seal. Nowhere else.",
+    "Pairs with: /jianghu (daily ritual) and /jianghu seclusion (breakthrough)."
+  ]
 }

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# bin/jianghu-demon-prompt — build {system,user} pair for the 心魔 LLM call.
+#
+# Usage:
+#   jianghu-demon-prompt --signals signals.json --route route.json
+
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$here/_demon_prompt.py" "$@"

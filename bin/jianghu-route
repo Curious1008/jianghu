@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# bin/jianghu-route — pick 心魔 pattern from signals JSON.
+#
+# Usage:
+#   jianghu-signals | jianghu-route
+#   jianghu-route --signals path/to/signals.json
+
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$here/_pattern_router.py" "$@"

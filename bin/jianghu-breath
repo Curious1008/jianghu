@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# bin/jianghu-breath
+#
+# Dispatcher: read enabled_sources from ~/.jianghu/config.json, source each
+# `bin/signal-source-{name}.sh`, sum counts. Prints one integer to stdout.
+#
+# Usage: jianghu-breath [since_iso]
+#
+# Test hooks:
+#   JIANGHU_HOME — override ~/.jianghu (state + config)
+#   JIANGHU_BIN  — override bin dir for source impls
+
+set -euo pipefail
+
+since_iso="${1:-}"
+
+bin_dir="${JIANGHU_BIN:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+home_dir="${JIANGHU_HOME:-$HOME/.jianghu}"
+config_file="$home_dir/config.json"
+err_log="$home_dir/.last-signal-error"
+
+# Default enabled_sources if no config yet.
+default_sources=("claude_code")
+
+read_enabled_sources() {
+    if [[ ! -f "$config_file" ]]; then
+        printf '%s\n' "${default_sources[@]}"
+        return
+    fi
+    python3 - "$config_file" <<'PY' 2>/dev/null || printf '%s\n' "${default_sources[@]}"
+import json, sys
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    srcs = cfg.get("enabled_sources")
+    if isinstance(srcs, list) and srcs:
+        for s in srcs:
+            if isinstance(s, str):
+                print(s)
+    else:
+        print("claude_code")
+except Exception:
+    print("claude_code")
+PY
+}
+
+# Path-injection defense: name must match ^[a-z][a-z0-9_]+$
+is_valid_source_name() {
+    [[ "$1" =~ ^[a-z][a-z0-9_]+$ ]]
+}
+
+log_warn() {
+    mkdir -p "$home_dir" 2>/dev/null || true
+    printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$1" >>"$err_log" 2>/dev/null || true
+}
+
+total=0
+while IFS= read -r name; do
+    [[ -z "$name" ]] && continue
+    if ! is_valid_source_name "$name"; then
+        log_warn "rejected source name: $name"
+        continue
+    fi
+    impl="$bin_dir/signal-source-$name.sh"
+    if [[ ! -f "$impl" ]]; then
+        log_warn "missing source impl: $impl"
+        continue
+    fi
+    # shellcheck disable=SC1090
+    source "$impl"
+    if ! declare -F count_breaths_for_source >/dev/null; then
+        log_warn "impl did not define count_breaths_for_source: $impl"
+        continue
+    fi
+    n="$(count_breaths_for_source "$since_iso" 2>/dev/null || echo 0)"
+    [[ "$n" =~ ^[0-9]+$ ]] || n=0
+    total=$((total + n))
+    unset -f count_breaths_for_source
+done < <(read_enabled_sources)
+
+printf '%s\n' "$total"

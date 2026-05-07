@@ -1,0 +1,5 @@
+{"type":"user","timestamp":"2026-01-01T00:00:00Z","content":"hi"}
+{"type":"assistant","timestamp":"2026-01-01T00:00:01Z","content":"hello"}
+{"type":"user","timestamp":"2026-01-01T00:00:02Z","content":"go"}
+{"type":"assistant","timestamp":"2026-01-01T00:00:03Z","content":"ok"}
+{"type":"assistant","timestamp":"2026-05-07T12:00:00Z","content":"later"}

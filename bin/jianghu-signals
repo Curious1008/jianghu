@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# bin/jianghu-signals — extract repo signals as JSON.
+#
+# Usage: jianghu-signals [--repo PATH] [--days N]
+
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$here/_git_signals.py" "$@"
