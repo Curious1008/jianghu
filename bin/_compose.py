@@ -81,14 +81,48 @@ def first_run_path(breath: int) -> tuple[str, int, str, str]:
     return "D元婴", 4, "元婴", "Nascent Soul"
 
 
-GATE_ART = [
-    "          ╱╲              ",
-    "         ╱  ╲             ",
-    "        ╱  〇 ╲            ",
-    "    ━━━╱━━━━━━╲━━━        ",
-    "      ╱  山  门  ╲         ",
-    "     ─────────────        ",
+# 山门 ASCII art — uncentered glyphs only. centering is computed at render
+# time so the block sits cleanly on the frame's vertical axis instead of
+# floating left.
+_GATE_GLYPHS = [
+    "╱╲",
+    "╱  ╲",
+    "╱  〇 ╲",
+    "━━━╱━━━━━━╲━━━",
+    "╱  山  门  ╲",
+    "─────────────",
 ]
+
+
+def _center_block(lines: list[str]) -> list[str]:
+    """Center a multi-line ASCII block as a unit. Each line is centered to
+    the widest line's cell width; the whole block is then offset so its
+    midpoint lands on the frame's vertical axis (accounting for the
+    render_block indent of 4)."""
+    import unicodedata
+
+    def _cw(c: str) -> int:
+        if ord(c) < 0x80:
+            return 0 if unicodedata.category(c) in ("Cc", "Cf") else 1
+        return 2 if unicodedata.east_asian_width(c) in ("W", "F") else 1
+
+    def _w(s: str) -> int:
+        return sum(_cw(c) for c in s)
+
+    INNER = 48
+    RENDER_INDENT = 4  # render_block prepends this
+    block_w = max(_w(s) for s in lines)
+    # Block's left edge in frame: center the block_w in INNER, then subtract
+    # the indent that render_block will add.
+    block_offset = max(0, (INNER - block_w) // 2 - RENDER_INDENT)
+    out: list[str] = []
+    for line in lines:
+        gap = max(0, (block_w - _w(line)) // 2)
+        out.append(" " * block_offset + " " * gap + line)
+    return out
+
+
+GATE_ART = _center_block(_GATE_GLYPHS)
 
 
 def realm_box(zh_name: str, en_name: str) -> list[str]:
