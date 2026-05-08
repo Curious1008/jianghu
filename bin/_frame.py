@@ -188,12 +188,24 @@ def section_header(style: str, label_zh: str, label_en: str, deco: str) -> list[
 
 
 def render_block(style: str, lines: list[str], indent: int = 4) -> list[str]:
-    """Render content lines at `indent` cells in. Wraps to inner-indent budget."""
+    """Render content lines at `indent` cells in. Wraps to inner-indent budget.
+
+    Hanging-indent preservation: if the source line begins with leading
+    spaces (e.g. a quoted line `  "..."`), the same leading is applied to
+    every wrapped continuation so quotes stay visually aligned.
+    """
     budget = INNER_WIDTH - indent - 2  # right margin = 2
     out: list[str] = []
     for raw in lines:
-        for wrapped in wrap_text(raw, budget):
-            out.append(wrap_inner(style, " " * indent + wrapped))
+        leading = len(raw) - len(raw.lstrip(" "))
+        if 0 < leading < budget:
+            body_budget = budget - leading
+            body_lines = wrap_text(raw[leading:], body_budget)
+            wrapped = [(" " * leading) + b for b in (body_lines or [""])]
+        else:
+            wrapped = wrap_text(raw, budget) or [""]
+        for w in wrapped:
+            out.append(wrap_inner(style, " " * indent + w))
     return out
 
 
