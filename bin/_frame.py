@@ -83,8 +83,11 @@ def pad_to(s: str, width: int) -> str:
 def wrap_text(s: str, width: int) -> list[str]:
     """Wrap `s` into lines that each fit in `width` cells.
 
-    Splits on whitespace where possible (Latin); falls back to greedy
-    char-by-char accumulation (CJK). Newlines in the input are honored.
+    On overflow, prefer the last whitespace within the current line so
+    Latin words don't split mid-letter ("complete\\n." → "complete." on
+    one line). CJK has no spaces, so it falls back to greedy character
+    accumulation, which is the correct behavior there. Newlines in the
+    input are honored.
     """
     out: list[str] = []
     for raw_line in s.split("\n"):
@@ -93,19 +96,35 @@ def wrap_text(s: str, width: int) -> list[str]:
             continue
         line = ""
         line_w = 0
+        last_space_pos = -1  # index into `line` of the most recent space
         i = 0
         while i < len(raw_line):
             ch = raw_line[i]
             cw = cell_width(ch)
-            # Try to break on space if we'd overflow.
             if line_w + cw > width and line:
-                out.append(line.rstrip())
-                line = ""
-                line_w = 0
-                # Skip leading spaces after a wrap.
-                while i < len(raw_line) and raw_line[i] == " ":
-                    i += 1
-                continue
+                if last_space_pos >= 0:
+                    # Break at the recorded space — head ends clean, carry
+                    # becomes the start of the new line. The current `ch` is
+                    # the next content for the new line; fall through and
+                    # append it normally so any space it carries is kept.
+                    head = line[:last_space_pos]
+                    carry = line[last_space_pos + 1:]
+                    out.append(head.rstrip())
+                    line = carry
+                    line_w = sum(cell_width(c) for c in line)
+                    last_space_pos = -1
+                else:
+                    # No space in this line — char-break (CJK or one long
+                    # token). Skip leading spaces on the continuation.
+                    out.append(line.rstrip())
+                    line = ""
+                    line_w = 0
+                    last_space_pos = -1
+                    while i < len(raw_line) and raw_line[i] == " ":
+                        i += 1
+                    continue
+            if ch == " ":
+                last_space_pos = len(line)
             line += ch
             line_w += cw
             i += 1
